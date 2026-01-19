@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tarout Bay Fish Kill — Hydrodynamic Modeling Story</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    :root{
+      --fg:#F5F8FF;
+      --muted:rgba(245,248,255,.86);
+      --glassA:rgba(7,10,20,.86);
+      --glassB:rgba(7,10,20,.58);
+      --stroke:rgba(245,248,255,.22);
+      --accent:#8FD3FF;
+      --danger:#FF6B6B;
+      --ok:#6BFFB0;
+
+      --shadow: 0 26px 110px rgba(0,0,0,.70);
+      --shadowSoft: 0 18px 70px rgba(0,0,0,.52);
+      --radius: 22px;
+
+      --title: clamp(20px, 2.0vw, 32px);
+      --h1: clamp(22px, 2.6vw, 38px);
+      --lead: clamp(14px, 1.2vw, 18px);
+      --body: clamp(13.5px, 1.1vw, 16px);
+      --small: 12.4px;
+
+      --safeTop: 0px; /* auto via JS */
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;overflow:hidden;background:#060811;color:var(--fg);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,"Noto Sans",sans-serif;
+    }
+
+    .stage{position:relative;height:100vh;width:100vw;overflow:hidden;background:#060811;}
+    #map{position:absolute;inset:0;z-index:0;filter:saturate(1.05) contrast(1.05);}
+    .vignette{
+      position:absolute;inset:0;z-index:1;
+      background:
+        radial-gradient(1100px 650px at 70% 25%, rgba(0,0,0,.10), rgba(0,0,0,.72) 52%, rgba(0,0,0,.88)),
+        linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.72));
+      pointer-events:none;
+    }
+
+    /* ---------- HEADER ---------- */
+    .topbar{position:absolute;left:16px;right:16px;top:16px;z-index:3;}
+    .header{
+      width:100%;
+      display:grid;
+      grid-template-columns: 220px 1fr auto;
+      gap:12px;
+      align-items:center;
+      padding:12px 14px;
+
+      background:linear-gradient(180deg,var(--glassA),var(--glassB));
+      border:1px solid var(--stroke);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+      backdrop-filter:blur(14px);
+    }
+
+    .brandLeft{display:flex;align-items:center;gap:10px;min-width:0;}
+    .logo{
+      height:42px; width:auto; display:block;
+      filter: drop-shadow(0 8px 18px rgba(0,0,0,.55));
+      border-radius:8px;
+      background:rgba(255,255,255,.06);
+      padding:6px 10px;
+      border:1px solid rgba(245,248,255,.16);
+    }
+
+    .brandCenter{min-width:0; display:flex; flex-direction:column; gap:6px; padding:2px 8px; text-align:center;}
+    .kicker{
+      font-size:var(--small);
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:rgba(245,248,255,.78);
+      font-weight:950;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .title{
+      font-size:var(--title);
+      font-weight:1100;
+      letter-spacing:.01em;
+      line-height:1.06;
+      text-shadow:0 2px 18px rgba(0,0,0,.55);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      font-size:var(--body);
+      color:var(--muted);
+      line-height:1.25;
+      opacity:.95;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .controls{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+    .btn{
+      appearance:none;border:1px solid rgba(245,248,255,.22);
+      background:rgba(255,255,255,.08);color:var(--fg);
+      border-radius:14px;padding:10px 12px;cursor:pointer;
+      font-weight:950;font-size:14px;
+      transition:transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+      user-select:none;white-space:nowrap;
+      box-shadow:0 10px 40px rgba(0,0,0,.25);
+    }
+    .btn:hover{background:rgba(255,255,255,.12);border-color:rgba(245,248,255,.34);box-shadow:0 14px 55px rgba(0,0,0,.34);}
+    .btn:active{transform:scale(.98);}
+    .btn.primary{border-color:rgba(143,211,255,.60);background:rgba(143,211,255,.20);}
+    .pill{
+      font-size:13px;color:rgba(245,248,255,.92);
+      padding:9px 12px;border-radius:999px;
+      border:1px solid rgba(245,248,255,.26);
+      background:rgba(255,255,255,.06);
+      min-width:110px;text-align:center;
+      font-weight:950;white-space:nowrap;
+    }
+
+    @media (max-width: 980px){
+      .header{grid-template-columns: 180px 1fr auto;}
+      .sub{display:none;}
+    }
+    @media (max-width: 760px){
+      html,body{overflow:auto;}
+      .stage{height:auto; min-height:100vh;}
+      .header{grid-template-columns: 1fr; text-align:center;}
+      .brandLeft{justify-content:center;}
+      .controls{justify-content:center;}
+    }
+
+    /* ---------- SCENE AREA ---------- */
+    .layout{
+      position:absolute;
+      left:16px; right:16px;
+      top:calc(var(--safeTop) + 12px);
+      bottom:16px;
+      z-index:3;
+      display:flex;
+      min-height:0;
+    }
+
+    .scene{display:none;width:100%;min-height:0;}
+    .scene.active{display:block;}
+
+    .tileGrid{
+      height:100%;
+      display:grid;
+      gap:14px;
+      min-height:0;
+    }
+    .tileGrid.three{ grid-template-columns: 0.72fr 1.14fr 1.14fr; }
+    .tileGrid.two{ grid-template-columns: 0.72fr 2.28fr; }
+
+    .panel{
+      background:linear-gradient(180deg,var(--glassA),var(--glassB));
+      border:1px solid var(--stroke);
+      border-radius:var(--radius);
+      box-shadow:var(--shadowSoft);
+      backdrop-filter:blur(14px);
+      overflow:hidden;
+      min-height:0;
+      position:relative;
+      display:flex;
+      flex-direction:column;
+    }
+
+    /* LEFT TEXT PANEL */
+    .textPanel{padding:16px;gap:12px;overflow:auto;}
+    .textPanel::-webkit-scrollbar{width:10px}
+    .textPanel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px;border:1px solid rgba(255,255,255,.10)}
+    .textPanel::-webkit-scrollbar-track{background:rgba(0,0,0,.18)}
+    .badgeRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    .badge{
+      font-size:12px;font-weight:1000;padding:7px 11px;border-radius:999px;
+      border:1px solid rgba(245,248,255,.22);background:rgba(255,255,255,.06);
+      color:rgba(245,248,255,.92);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;
+    }
+    .badge.cool{border-color:rgba(143,211,255,.55);background:rgba(143,211,255,.14);}
+
+    .h1{font-size:var(--h1);font-weight:1100;line-height:1.06;margin:0;text-shadow:0 2px 18px rgba(0,0,0,.55);}
+    .lead{margin:0;font-size:var(--lead);line-height:1.58;color:rgba(245,248,255,.92);}
+
+    /* BULLETS */
+    .bullets{margin:0;padding:0;list-style:none;display:grid;gap:10px;}
+    .bullets li{
+      display:flex;gap:12px;align-items:flex-start;
+      padding:10px 12px;border-radius:16px;
+      border:1px solid rgba(245,248,255,.16);
+      background:rgba(255,255,255,.06);
+    }
+    .dot{width:11px;height:11px;border-radius:50%;margin-top:6px;flex:0 0 auto;background:var(--accent);box-shadow:0 0 0 6px rgba(143,211,255,.10);}
+    .dot.danger{background:var(--danger);box-shadow:0 0 0 6px rgba(255,107,107,.10);}
+    .dot.ok{background:var(--ok);box-shadow:0 0 0 6px rgba(107,255,176,.10);}
+    .liText{font-size:var(--body);line-height:1.45;color:rgba(245,248,255,.92);font-weight:850;}
+    .liText b{color:var(--fg);}
+
+    .subhead{
+      margin:2px 0 -4px 0;
+      font-size:12.5px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      color:rgba(245,248,255,.78);
+      font-weight:1000;
+    }
+    .note{
+      margin:0;
+      font-size:var(--body);
+      line-height:1.5;
+      color:rgba(245,248,255,.90);
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(245,248,255,.14);
+      background:rgba(255,255,255,.05);
+      font-weight:850;
+    }
+
+    /* MEDIA PANELS */
+    .mediaPanel{padding:12px;}
+    .mediaFrame{
+      flex:1 1 auto;
+      min-height:0;
+      border-radius:16px;
+      border:1px solid rgba(245,248,255,.16);
+      background:rgba(0,0,0,.28);
+      display:flex;align-items:center;justify-content:center;
+      overflow:hidden;
+      padding:10px;
+    }
+    .mediaFrame img,
+    .mediaFrame video{
+      max-width:100%;
+      max-height:100%;
+      width:auto;height:auto;
+      object-fit:contain;
+      object-position:center;
+      display:block;
+      border-radius:12px;
+      background:rgba(0,0,0,.15);
+    }
+    .cap{
+      margin-top:10px;
+      padding:9px 10px;
+      border-radius:14px;
+      border:1px solid rgba(245,248,255,.14);
+      background:rgba(255,255,255,.05);
+      font-size:var(--body);
+      line-height:1.35;
+      font-weight:900;
+      color:rgba(245,248,255,.92);
+      max-height:88px;
+      overflow:hidden;
+    }
+
+    /* Canvas overlay for particle animation */
+    #particleCanvas{
+      position:absolute; inset:0;
+      width:100%; height:100%;
+      pointer-events:none;
+      z-index:2;
+      mix-blend-mode:screen;
+      opacity:.95;
+    }
+
+    .leaflet-control-container{display:none;}
+
+    .mapLabel{
+      background:rgba(10,14,22,.72);
+      color:rgba(245,248,255,.95);
+      border:1px solid rgba(245,248,255,.22);
+      padding:8px 10px;
+      border-radius:999px;
+      font-weight:950;
+      font-size:13px;
+      letter-spacing:.06em;
+      box-shadow:0 12px 45px rgba(0,0,0,.35);
+      backdrop-filter:blur(10px);
+      white-space:nowrap;
+    }
+
+    /* Header progress */
+    .miniProg{display:flex;gap:8px;align-items:center;}
+    .barMini{
+      width:140px;height:10px;border-radius:999px;
+      background:rgba(245,248,255,.14);
+      border:1px solid rgba(245,248,255,.16);
+      overflow:hidden;
+    }
+    .barMini > div{
+      height:100%;width:0%;
+      background:linear-gradient(90deg, rgba(143,211,255,.95), rgba(107,255,176,.95));
+      border-radius:999px;
+      transition:width 120ms linear;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="stage">
+    <div id="map" aria-hidden="true"></div>
+    <canvas id="particleCanvas" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <div class="topbar">
+      <div class="header">
+        <div class="brandLeft">
+          <img class="logo" src="kfupm_logo.jpg" alt="KFUPM logo" />
+        </div>
+
+        <div class="brandCenter">
+          <div class="kicker" id="kicker">Scene 1 — Crisis Signal</div>
+          <div class="title" id="mainTitle">Tarout Bay Fish Kill — Hydrodynamic Modeling</div>
+          <div class="sub" id="subtitle">Receptor → pathways → connected hotspots for rapid investigation.</div>
+        </div>
+
+        <div class="controls" role="group" aria-label="Playback controls">
+          <button class="btn" id="prevBtn" title="Previous (Left Arrow)">◀ Prev</button>
+          <button class="btn primary" id="playBtn" title="Play or Pause (Space)">Play</button>
+          <button class="btn" id="nextBtn" title="Next (Right Arrow)">Next ▶</button>
+          <div class="pill" id="pill">Scene 1/5</div>
+
+          <div class="miniProg" title="Auto-run progress">
+            <div class="pill" id="timerPill">—</div>
+            <div class="barMini"><div id="barFill"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- SCENE 1 -->
+      <section class="scene active" id="scene1" data-step="1" data-duration="11000">
+        <div class="tileGrid three">
+          <div class="panel textPanel">
+            <div class="badgeRow">
+              <span class="badge cool">Scene 1</span>
+              <span class="badge cool">Crisis signal</span>
+            </div>
+            <h1 class="h1">Crisis Signal at Tarout Bay</h1>
+            <p class="lead">
+              A sudden fish-kill is treated as a <b>receptor event</b>. Instead of guessing a source,
+              we start from the impacted bay and use hydrodynamics to define what the coast could have delivered.
+            </p>
+
+            <div class="subhead">Key interpretation</div>
+            <p class="note">
+              Tarout Bay is shallow and semi-enclosed, so weak exchange can allow rapid build-up of stressors
+              (low oxygen, bloom impacts, or contaminants). The first step is to map the impact zone and frame
+              the investigation around <b>connected transport pathways</b>.
+            </p>
+
+            <div class="subhead">What we screen first</div>
+            <ul class="bullets">
+              <li><div class="dot danger"></div><div class="liText"><b>Trigger evidence:</b> mortality reports + visible anomalies → activate modeling response.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Likely mechanisms:</b> hypoxia, stagnation, HAB stress/toxins, contamination, or combined effects.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Receptor-first workflow:</b> define impact patch → overlay currents → infer feasible origins.</div></li>
+              <li><div class="dot ok"></div><div class="liText"><b>Deliverable:</b> corridors + hotspot flags to guide rapid field sampling.</div></li>
+            </ul>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <img src="scene1_left_satellite.png" alt="Tarout Bay overview" />
+            </div>
+            <div class="cap">Tarout Bay context: shallow, semi-enclosed receptor system.</div>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <img src="scene1_right_satellite.png" alt="Key drivers screened" />
+            </div>
+            <div class="cap">First-pass screening of drivers affecting fish survival and exposure.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCENE 2 -->
+      <section class="scene" id="scene2" data-step="2" data-videos="scene2vid">
+        <div class="tileGrid two">
+          <div class="panel textPanel">
+            <div class="badgeRow">
+              <span class="badge cool">Scene 2</span>
+              <span class="badge cool">Winter SST context</span>
+            </div>
+            <h1 class="h1">Why Temperature Is Neglected in Winter</h1>
+            <p class="lead">
+              The event occurs in <b>winter</b>, when Gulf SST is typically lower than summer extremes.
+              SST is still shown to <b>verify</b> context and check for unusual warming during the event window.
+            </p>
+
+            <div class="subhead">Decision logic</div>
+            <p class="note">
+              Summer heat can amplify oxygen depletion and fish stress, but in winter this pathway is usually weaker.
+              Therefore, temperature is treated as a <b>supporting context</b>, while the core analysis focuses on
+              <b>transport, residence time</b>, and exposure corridors feeding Tarout Bay.
+            </p>
+
+            <div class="subhead">What this scene provides</div>
+            <ul class="bullets">
+              <li><div class="dot"></div><div class="liText"><b>Verification:</b> confirm SST background state + any anomalies during the fish-kill period.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Interpretation:</b> winter thermal stress is unlikely to be the primary driver.</div></li>
+              <li><div class="dot danger"></div><div class="liText"><b>Shift in focus:</b> currents + retention pockets + weak flushing become priority.</div></li>
+              <li><div class="dot ok"></div><div class="liText"><b>Next:</b> use hydrodynamic fields to connect receptor to coastal origins.</div></li>
+            </ul>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <video id="scene2vid" src="ppt_video.mp4" controls playsinline muted preload="metadata"></video>
+            </div>
+            <div class="cap">Winter SST plot used as event-window context (verification step).</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCENE 3 -->
+      <section class="scene" id="scene3" data-step="3" data-videos="scene3vid">
+        <div class="tileGrid three">
+          <div class="panel textPanel">
+            <div class="badgeRow">
+              <span class="badge cool">Scene 3</span>
+              <span class="badge cool">Model setup</span>
+            </div>
+            <h1 class="h1">Setting Up the Hydrodynamic Model</h1>
+            <p class="lead">
+              A high-resolution hydrodynamic domain is configured around Tarout Bay, framed by
+              <b>Ras Tanura</b> (north) and <b>Saihat–Dammam</b> (south), to resolve exchange and nearshore drift.
+            </p>
+
+            <div class="subhead">What is resolved</div>
+            <p class="note">
+              The model captures tidal exchange, residual circulation, wind-driven transport, and the weakly flushed
+              nearshore pockets that can concentrate stressors. These physical fields are the foundation for back-tracking.
+            </p>
+
+            <div class="subhead">Outputs used later</div>
+            <ul class="bullets">
+              <li><div class="dot"></div><div class="liText"><b>Hydrodynamics:</b> currents, water level, exchange pathways and retention zones.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Exposure environment:</b> where transport is fast vs. where water stagnates.</div></li>
+              <li><div class="dot ok"></div><div class="liText"><b>Pathway engine:</b> particle tracking uses these fields to reconstruct origins.</div></li>
+              <li><div class="dot danger"></div><div class="liText"><b>Why it matters:</b> converts an event into testable coastal corridors.</div></li>
+            </ul>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <img src="scene3_left_grid.png" alt="Model workflow" />
+            </div>
+            <div class="cap">Grid + bathymetry + boundaries (setup workflow).</div>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <video id="scene3vid" src="ppt_video_scene3.mp4" controls playsinline muted preload="metadata"></video>
+            </div>
+            <div class="cap">Domain framing and forcing summarized for Tarout Bay.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCENE 4 (MERGED: salinity+currents video LEFT, backtracking video RIGHT) -->
+      <section class="scene" id="scene4" data-step="4" data-videos="scene4vidLeft,scene4vidRight">
+        <div class="tileGrid three">
+          <div class="panel textPanel">
+            <div class="badgeRow">
+              <span class="badge cool">Scene 4</span>
+              <span class="badge cool">Currents + Salinity</span>
+              <span class="badge cool">Back-tracking</span>
+            </div>
+            <h1 class="h1">Receptor Connectivity + Back-Tracking</h1>
+            <p class="lead">
+              We combine <b>hydrodynamic context</b> (currents + salinity variability) with <b>backward particle tracking</b>
+              to identify where Tarout Bay water could have originated during the event window.
+            </p>
+
+            <div class="subhead">How to read this combined view</div>
+            <p class="note">
+              The left video provides the <b>physical background</b> (exchange, drift direction, salinity fronts/gradients).
+              The right video shows <b>back-tracked particles</b> released at the receptor and integrated backward,
+              revealing <b>dominant corridors</b> and <b>convergence hotspots</b>.
+            </p>
+
+            <div class="subhead">Decision-ready interpretation</div>
+            <ul class="bullets">
+              <li><div class="dot"></div><div class="liText"><b>Constraint:</b> only sources connected by currents are physically feasible.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Salinity signal:</b> highlights exchange pathways, mixing zones, and possible inflow signatures.</div></li>
+              <li><div class="dot ok"></div><div class="liText"><b>Back-tracking evidence:</b> repeated paths through the same coast = stronger connectivity.</div></li>
+              <li><div class="dot danger"></div><div class="liText"><b>Outcome:</b> corridors converge toward <b>Saihat</b> (south) and <b>Ras Tanura</b> (north) for priority checks.</div></li>
+            </ul>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <!-- LEFT: salinity changes + currents -->
+              <video id="scene4vidLeft" src="scene_4_right.mp4" controls playsinline muted preload="metadata"></video>
+            </div>
+            <div class="cap">Left: salinity variability + currents (exchange and transport context).</div>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <!-- RIGHT: backward particle tracking -->
+              <video id="scene4vidRight" src="scene5_right.mp4" controls playsinline muted preload="metadata"></video>
+            </div>
+            <div class="cap">Right: backward particle tracking showing convergence corridors toward Saihat and Ras Tanura.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCENE 5 (was Scene 6) -->
+      <section class="scene" id="scene5" data-step="5" data-duration="11000">
+        <div class="tileGrid three">
+          <div class="panel textPanel">
+            <div class="badgeRow">
+              <span class="badge cool">Scene 5</span>
+              <span class="badge cool">Action map</span>
+            </div>
+            <h1 class="h1">Hotspots for Action</h1>
+            <p class="lead">
+              Final synthesis: Tarout Bay is marked as the impacted receptor, while <b>Saihat</b> and <b>Ras Tanura</b>
+              are highlighted as connected hotspots supported by dominant back-tracking channels.
+            </p>
+
+            <div class="subhead">What we deliver to teams</div>
+            <p class="note">
+              This is an investigation map: it narrows the search space using physics-based connectivity.
+              Field teams can prioritize sampling locations, timing, and rapid checks along the highlighted corridors.
+            </p>
+
+            <div class="subhead">Decision-ready bullets</div>
+            <ul class="bullets">
+              <li><div class="dot ok"></div><div class="liText"><b>Outcome:</b> modeling narrows “where to look first”.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Hotspots:</b> Ras Tanura Port + Saihat supported by convergence evidence.</div></li>
+              <li><div class="dot"></div><div class="liText"><b>Strength:</b> corridors arise from hydrodynamics (not a single assumed source).</div></li>
+              <li><div class="dot danger"></div><div class="liText"><b>Next step:</b> targeted field confirmation + response planning.</div></li>
+            </ul>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <img src="scene6_left.png" alt="Action map" />
+            </div>
+            <div class="cap">Action map: Tarout Bay receptor + dominant pathways.</div>
+          </div>
+
+          <div class="panel mediaPanel">
+            <div class="mediaFrame">
+              <img src="scene6_right.png" alt="Hotspots" />
+            </div>
+            <div class="cap">Final highlight: Ras Tanura Port and Saihat as priority hotspots.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Auto safeTop so layout always fits at 100% zoom (Chrome/Edge) ----------
+    (function autoSafeTop(){
+      const root = document.documentElement;
+      const topbar = document.querySelector(".topbar");
+      const header = document.querySelector(".header");
+      if(!topbar || !header) return;
+
+      function update(){
+        const h = topbar.getBoundingClientRect().height;
+        root.style.setProperty("--safeTop", `${Math.ceil(16 + h)}px`);
+      }
+      update();
+      window.addEventListener("resize", update, { passive:true });
+
+      if("ResizeObserver" in window){
+        const ro = new ResizeObserver(update);
+        ro.observe(topbar);
+        ro.observe(header);
+      }
+    })();
+
+    // ---------- Leaflet background map (locked) ----------
+    const map = L.map("map", {
+      zoomControl:false, attributionControl:false, dragging:false,
+      scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false, keyboard:false, tap:false
+    }).setView([26.25, 50.12], 10);
+
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19 }
+    ).addTo(map);
+
+    // Coordinates
+    const TAROUT = [26.60, 50.10];
+    const RAS_TANURA = [26.65, 50.16];
+    const SAIHAT = [26.49, 50.04];
+    const DAMMAM = [26.42, 50.10];
+
+    function mapLabel(text){
+      return L.divIcon({
+        className: "",
+        html: `<div class="mapLabel">${text}</div>`,
+        iconSize: [1,1],
+        iconAnchor: [0,0]
+      });
+    }
+
+    const layers = {
+      labels: L.layerGroup().addTo(map),
+      receptor: L.layerGroup().addTo(map),
+      hotspots: L.layerGroup().addTo(map),
+      corridors: L.layerGroup().addTo(map)
+    };
+
+    const receptorPatch = L.circle(TAROUT, {
+      radius: 2600,
+      color: "rgba(255,107,107,.95)",
+      weight: 2,
+      fillColor: "rgba(255,107,107,.35)",
+      fillOpacity: 0.7
+    });
+
+    const mkRas = L.circleMarker(RAS_TANURA, {
+      radius: 9, weight: 2,
+      color: "rgba(143,211,255,.95)",
+      fillColor: "rgba(143,211,255,.55)",
+      fillOpacity: 0.9
+    });
+
+    const mkSaihat = L.circleMarker(SAIHAT, {
+      radius: 9, weight: 2,
+      color: "rgba(107,255,176,.95)",
+      fillColor: "rgba(107,255,176,.55)",
+      fillOpacity: 0.9
+    });
+
+    const mkDammam = L.circleMarker(DAMMAM, {
+      radius: 7, weight: 1.6,
+      color: "rgba(245,248,255,.75)",
+      fillColor: "rgba(245,248,255,.20)",
+      fillOpacity: 0.7
+    });
+
+    const lblTarout = L.marker([TAROUT[0]-0.02, TAROUT[1]+0.01], { icon: mapLabel("Tarout Bay (Impact Zone)") });
+    const lblRas = L.marker([RAS_TANURA[0]+0.01, RAS_TANURA[1]+0.01], { icon: mapLabel("Ras Tanura Port") });
+    const lblSaihat = L.marker([SAIHAT[0]-0.01, SAIHAT[1]-0.01], { icon: mapLabel("Saihat") });
+    const lblDammam = L.marker([DAMMAM[0]-0.02, DAMMAM[1]+0.02], { icon: mapLabel("Dammam") });
+
+    const corridorNorth = L.polyline(
+      [TAROUT, [26.62,50.12], [26.64,50.14], RAS_TANURA],
+      { color:"rgba(143,211,255,.95)", weight:5, opacity:0.72, lineCap:"round" }
+    );
+    const corridorSouth = L.polyline(
+      [TAROUT, [26.57,50.08], [26.53,50.06], SAIHAT],
+      { color:"rgba(107,255,176,.95)", weight:5, opacity:0.72, lineCap:"round" }
+    );
+    const corridorNorthSoft = L.polyline(
+      [TAROUT, [26.615,50.125], [26.642,50.152], RAS_TANURA],
+      { color:"rgba(143,211,255,.35)", weight:12, opacity:0.25, lineCap:"round" }
+    );
+    const corridorSouthSoft = L.polyline(
+      [TAROUT, [26.565,50.075], [26.525,50.055], SAIHAT],
+      { color:"rgba(107,255,176,.35)", weight:12, opacity:0.25, lineCap:"round" }
+    );
+
+    function clearAllOverlays(){ Object.values(layers).forEach(g => g.clearLayers()); }
+
+    // ---------- Particle animation (now runs in merged Scene 4) ----------
+    const canvas = document.getElementById("particleCanvas");
+    const ctx = canvas.getContext("2d");
+    let particleRAF = null;
+    let particles = [];
+    let particleRunning = false;
+
+    function resizeCanvas(){
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width * devicePixelRatio));
+      canvas.height = Math.max(1, Math.floor(rect.height * devicePixelRatio));
+      ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+    }
+    window.addEventListener("resize", resizeCanvas);
+
+    function lerp(a,b,t){ return a + (b-a)*t; }
+    function polylineSample(latlngs, t){
+      const pts = latlngs.map(ll => L.latLng(ll));
+      if(pts.length < 2) return pts[0];
+      const segs = pts.length - 1;
+      const u = Math.min(0.999999, Math.max(0, t)) * segs;
+      const i = Math.floor(u);
+      const f = u - i;
+      const A = pts[i], B = pts[i+1];
+      return L.latLng( lerp(A.lat,B.lat,f), lerp(A.lng,B.lng,f) );
+    }
+
+    function seedParticles(){
+      particles = [];
+      const n = 520;
+      const northPts = corridorNorth.getLatLngs();
+      const southPts = corridorSouth.getLatLngs();
+      for(let i=0;i<n;i++){
+        const pickNorth = (Math.random() < 0.52);
+        const baseT = Math.random() * 0.18;
+        particles.push({
+          path: pickNorth ? northPts : southPts,
+          t: baseT,
+          speed: 0.015 + Math.random()*0.030,
+          jitter: 2 + Math.random()*5,
+          alpha: 0.35 + Math.random()*0.55,
+          size: 1.2 + Math.random()*1.8
+        });
+      }
+    }
+
+    function stopParticles(){
+      particleRunning = false;
+      if(particleRAF) cancelAnimationFrame(particleRAF);
+      particleRAF = null;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    }
+
+    function drawParticles(){
+      if(!particleRunning) return;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.globalCompositeOperation = "lighter";
+
+      const northRef = corridorNorth.getLatLngs();
+      for(const p of particles){
+        p.t = Math.min(1, p.t + p.speed);
+        const ll = polylineSample(p.path, p.t);
+        const xy = map.latLngToContainerPoint(ll);
+
+        const jx = (Math.random()-0.5) * p.jitter;
+        const jy = (Math.random()-0.5) * p.jitter;
+
+        const isNorth = (p.path === northRef);
+        const col = isNorth ? `rgba(143,211,255,${p.alpha})` : `rgba(107,255,176,${p.alpha})`;
+
+        ctx.beginPath();
+        ctx.fillStyle = col;
+        ctx.arc(xy.x + jx, xy.y + jy, p.size, 0, Math.PI*2);
+        ctx.fill();
+
+        if(p.t >= 1){
+          p.t = Math.random() * 0.12;
+          p.speed = 0.015 + Math.random()*0.030;
+          p.alpha = 0.35 + Math.random()*0.55;
+          p.size = 1.2 + Math.random()*1.8;
+        }
+      }
+
+      ctx.globalCompositeOperation = "source-over";
+      particleRAF = requestAnimationFrame(drawParticles);
+    }
+
+    function startParticles(){
+      resizeCanvas();
+      seedParticles();
+      particleRunning = true;
+      drawParticles();
+    }
+
+    map.on("move zoom", ()=>{ if(particleRunning) resizeCanvas(); });
+
+    // ---------- Scenes + UI ----------
+    const scenes = [...document.querySelectorAll(".scene")];
+    const kicker = document.getElementById("kicker");
+    const subtitle = document.getElementById("subtitle");
+    const pill = document.getElementById("pill");
+
+    const TOTAL_SCENES = 5;
+
+    function pauseAllVideos(){
+      document.querySelectorAll("video").forEach(v => {
+        try{
+          v.onended = null;
+          v.onplay = null;
+          v.ontimeupdate = null;
+          v.onerror = null;
+          v.pause();
+        }catch(e){}
+      });
+    }
+
+    function updateTopText(step){
+      const names = {
+        1:"Scene 1 — Crisis Signal",
+        2:"Scene 2 — Winter SST Context",
+        3:"Scene 3 — Model Setup",
+        4:"Scene 4 — Currents + Back-tracking",
+        5:"Scene 5 — Hotspots for Action"
+      };
+      kicker.textContent = names[step] || `Scene ${step}`;
+      pill.textContent = `Scene ${step}/${TOTAL_SCENES}`;
+
+      if(step === 1) subtitle.textContent = "Define receptor, screen mechanisms, and start hydrodynamic tracing.";
+      if(step === 2) subtitle.textContent = "Winter SST is contextual verification; transport remains the focus.";
+      if(step === 3) subtitle.textContent = "Build the model to resolve exchange, drift, and retention.";
+      if(step === 4) subtitle.textContent = "Left: salinity+currents. Right: backward particle tracking corridors.";
+      if(step === 5) subtitle.textContent = "Action map: receptor + connected hotspots for sampling.";
+    }
+
+    function applyMapForScene(step){
+      // particles only in merged scene 4 now
+      if(step !== 4) stopParticles();
+
+      clearAllOverlays();
+
+      if(step === 1){
+        map.flyTo([26.25, 50.12], 10, { duration: 1.2 });
+        layers.receptor.addLayer(receptorPatch);
+        layers.labels.addLayer(lblTarout);
+
+      } else if(step === 2){
+        map.flyTo([26.52, 50.08], 11, { duration: 1.2 });
+        layers.receptor.addLayer(receptorPatch);
+        layers.hotspots.addLayer(mkDammam);
+        layers.labels.addLayer(lblTarout).addLayer(lblDammam);
+
+      } else if(step === 3){
+        map.flyTo([26.55, 50.10], 11, { duration: 1.2 });
+        layers.receptor.addLayer(receptorPatch);
+        layers.hotspots.addLayer(mkRas).addLayer(mkSaihat).addLayer(mkDammam);
+        layers.labels.addLayer(lblTarout).addLayer(lblRas).addLayer(lblSaihat).addLayer(lblDammam);
+
+      } else if(step === 4){
+        map.flyTo([26.60, 50.10], 12, { duration: 1.2 });
+        layers.receptor.addLayer(receptorPatch);
+        layers.hotspots.addLayer(mkRas).addLayer(mkSaihat);
+        layers.corridors.addLayer(corridorNorthSoft).addLayer(corridorSouthSoft);
+        layers.corridors.addLayer(corridorNorth).addLayer(corridorSouth);
+        layers.labels.addLayer(lblRas).addLayer(lblSaihat).addLayer(lblTarout);
+        setTimeout(()=> startParticles(), 400);
+
+      } else if(step === 5){
+        map.flyTo([26.55, 50.10], 11, { duration: 1.2 });
+        layers.receptor.addLayer(receptorPatch);
+        layers.hotspots.addLayer(mkRas).addLayer(mkSaihat).addLayer(mkDammam);
+        layers.corridors.addLayer(corridorNorthSoft).addLayer(corridorSouthSoft);
+        layers.corridors.addLayer(corridorNorth).addLayer(corridorSouth);
+        layers.labels.addLayer(lblTarout).addLayer(lblRas).addLayer(lblSaihat).addLayer(lblDammam);
+      }
+    }
+
+    function setActiveStep(step){
+      scenes.forEach(s => s.classList.toggle("active", Number(s.dataset.step) === step));
+      updateTopText(step);
+      applyMapForScene(step);
+    }
+
+    // ---------- Autorun engine (supports multiple videos per scene) ----------
+    const playBtn = document.getElementById("playBtn");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const timerPill = document.getElementById("timerPill");
+    const barFill = document.getElementById("barFill");
+
+    let currentStep = 1;
+    let playing = false;
+    let raf = null;
+    let t0 = null;
+    let durationMs = 0;
+
+    function cancelAnim(){ if(raf) cancelAnimationFrame(raf); raf = null; }
+
+    function tick(now){
+      if(!playing || durationMs <= 0) return;
+      if(!t0) t0 = now;
+      const dt = now - t0;
+      const p = Math.min(1, dt / durationMs);
+      barFill.style.width = `${(p*100).toFixed(2)}%`;
+
+      const remain = Math.max(0, (durationMs - dt)/1000);
+      timerPill.textContent = `${remain.toFixed(1)}s`;
+
+      if(dt >= durationMs){ goNext(); return; }
+      raf = requestAnimationFrame(tick);
+    }
+
+    function setIndeterminate(label){
+      durationMs = 0; t0 = null; cancelAnim();
+      barFill.style.width = "0%";
+      timerPill.textContent = label;
+    }
+
+    function startSceneTimer(ms){
+      durationMs = ms;
+      t0 = performance.now();
+      cancelAnim();
+      raf = requestAnimationFrame(tick);
+    }
+
+    function getSceneVideos(scene){
+      const ids = (scene.dataset.videos || "").split(",").map(s=>s.trim()).filter(Boolean);
+      return ids.map(id => document.getElementById(id)).filter(Boolean);
+    }
+
+    function tryAutorunCurrentStep(){
+      const scene = scenes.find(s => Number(s.dataset.step) === currentStep);
+      if(!scene) return;
+
+      const vids = getSceneVideos(scene);
+      const dur = Number(scene.dataset.duration || 0);
+
+      if(vids.length){
+        // autoplay all (muted), advance after ALL end
+        setIndeterminate(vids.length > 1 ? "Videos" : "Video");
+
+        let endedCount = 0;
+        const markEnded = () => {
+          endedCount++;
+          if(playing && endedCount >= vids.length) goNext();
+        };
+
+        // start timer using max remaining duration if available
+        const tryStartTimerFromDurations = () => {
+          if(!playing) return;
+          let maxRemain = 0;
+          for(const v of vids){
+            if(isFinite(v.duration) && v.duration > 0){
+              const remain = Math.max(0.2, (v.duration - v.currentTime));
+              if(remain > maxRemain) maxRemain = remain;
+            }
+          }
+          if(maxRemain > 0) startSceneTimer(maxRemain * 1000);
+          else startSceneTimer(9000);
+        };
+
+        for(const v of vids){
+          try{ v.currentTime = 0; }catch(e){}
+          v.muted = true;
+
+          v.onended = markEnded;
+          v.onplay = tryStartTimerFromDurations;
+          v.ontimeupdate = () => { if(playing && !v.paused) tryStartTimerFromDurations(); };
+          v.onerror = () => { if(playing) startSceneTimer(9000); };
+
+          const p = v.play();
+          if(p && typeof p.catch === "function"){
+            p.catch(()=> { setIndeterminate("Press ▶"); });
+          }
+        }
+
+        // if durations are known quickly
+        setTimeout(tryStartTimerFromDurations, 120);
+        return;
+      }
+
+      startSceneTimer(dur > 0 ? dur : 9000);
+    }
+
+    function goNext(){
+      pauseAllVideos();
+      cancelAnim(); t0 = null;
+      currentStep = Math.min(TOTAL_SCENES, currentStep + 1);
+      setActiveStep(currentStep);
+      if(playing) tryAutorunCurrentStep();
+      else setIndeterminate("—");
+    }
+
+    function goPrev(){
+      pauseAllVideos();
+      cancelAnim(); t0 = null;
+      currentStep = Math.max(1, currentStep - 1);
+      setActiveStep(currentStep);
+      if(playing) tryAutorunCurrentStep();
+      else setIndeterminate("—");
+    }
+
+    function startAutorun(){
+      playing = true;
+      playBtn.textContent = "Pause";
+      tryAutorunCurrentStep();
+    }
+
+    function pauseAutorun(){
+      playing = false;
+      playBtn.textContent = "Play";
+      cancelAnim();
+      setIndeterminate("Paused");
+    }
+
+    playBtn.addEventListener("click", ()=> playing ? pauseAutorun() : startAutorun());
+    nextBtn.addEventListener("click", ()=> { playing ? goNext() : (goNext(), pauseAutorun()); });
+    prevBtn.addEventListener("click", ()=> { playing ? goPrev() : (goPrev(), pauseAutorun()); });
+
+    window.addEventListener("keydown", (e)=>{
+      if(e.key === "ArrowRight"){ e.preventDefault(); goNext(); }
+      if(e.key === "ArrowLeft"){ e.preventDefault(); goPrev(); }
+      if(e.key === " "){
+        e.preventDefault();
+        playing ? pauseAutorun() : startAutorun();
+      }
+    });
+
+    // init
+    resizeCanvas();
+    setActiveStep(1);
+    setIndeterminate("—");
+  </script>
+</body>
+</html>
